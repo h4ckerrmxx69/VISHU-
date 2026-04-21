@@ -1,43 +1,33 @@
-import os
-import requests
-import json
-import sqlite3
+import os, requests, json, sqlite3
 from pyrogram import Client, filters
-from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
+from pyrogram.types import ReplyKeyboardMarkup
 
-# --- [ CONFIGURATION FROM ENVIRONMENT VARIABLES ] ---
-# Railway ke dashboard mein ye Variables zaroor set karna
+# --- [ CONFIG ] ---
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) 
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+LOG_CHANNEL = ADMIN_ID # Yahan tu apni ID ya channel ID daal sakta hai
 
-app = Client("lookup_bot_pro", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("lookup_bot_final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- [ DATABASE SETUP ] ---
-# Railway Volume use kar rahe ho toh path change kar sakte ho
+# --- [ DB SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = db.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS users 
-    (user_id INTEGER PRIMARY KEY, credits INTEGER, total_searches INTEGER, status TEXT, referred_by INTEGER)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS history 
-    (user_id INTEGER, query TEXT, service TEXT)''')
+cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, credits INTEGER, searches INTEGER, status TEXT)")
 db.commit()
 
-# --- [ KEYBOARD LAYOUT ] ---
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [
-        ["📞 Number", "🆔 Aadhaar Info"],
-        ["👨‍👩‍👧 Family Details", "📞 Truecaller"],
-        ["🆔 TG User", "🆔 TG ID"],
-        ["🚗 Vehicle", "📍 Pincode"],
-        ["🏦 IFSC", "🌐 IP Info"],
-        ["🎮 Free Fire", "📸 Insta"],
-        ["🎨 AI Image", "👤 My Profile"],
-        ["📊 Admin Panel"]
-    ], resize_keyboard=True
-)
+# --- [ CLEANER FUNCTION ] ---
+def clean_response(data):
+    banned_keys = ["owner", "developer", "channel", "credit", "link", "by", "website", "api_by", "success"]
+    if isinstance(data, dict):
+        return {k: clean_response(v) for k, v in data.items() if k.lower() not in banned_keys}
+    elif isinstance(data, list):
+        return [clean_response(i) for i in data]
+    else:
+        return data
 
+# --- [ API MAP ] ---
 API_MAP = {
     "📞 Number": "https://sbsakib.eu.cc/apis/num_v1?key=Demo&num={q}",
     "🆔 Aadhaar Info": "https://sbsakib.eu.cc/apis/aadhaar?key=Demo&id={q}",
@@ -55,109 +45,64 @@ API_MAP = {
 
 user_states = {}
 
-# --- [ START COMMAND & REFERRAL ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
-    ref_by = int(message.command[1]) if len(message.command) > 1 else None
-    
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    user = cursor.fetchone()
-
-    if not user:
-        # New User: 5 Credits
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)", (user_id, 5, 0, "active", ref_by))
-        if ref_by:
-            cursor.execute("UPDATE users SET credits = credits + 10 WHERE user_id=?", (ref_by,))
-            try: await client.send_message(ref_by, "🎁 **Bonus!** Aapke link se koi join hua, 10 Credits add ho gaye.")
-            except: pass
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users VALUES (?, 5, 0, 'active')", (user_id,))
         db.commit()
     
-    await message.reply_text(
-        f"🔥 **INFO BOT PERSONAL ACTIVE**\n\nWelcome {message.from_user.first_name}!\nAapko 5 FREE Credits mile hain.",
-        reply_markup=MAIN_KEYBOARD
-    )
+    keyboard = ReplyKeyboardMarkup([
+        ["📞 Number", "🆔 Aadhaar Info"], ["👨‍👩‍👧 Family Details", "📞 Truecaller"],
+        ["🆔 TG User", "🆔 TG ID"], ["🚗 Vehicle", "📍 Pincode"],
+        ["🏦 IFSC", "🌐 IP Info"], ["🎮 Free Fire", "📸 Insta"],
+        ["🎨 AI Image", "👤 My Profile"], ["📊 Admin Panel"]
+    ], resize_keyboard=True)
+    await message.reply_text("🔥 **INFO BOT ACTIVE**\n\nChoose a tool:", reply_markup=keyboard)
 
-# --- [ MAIN HANDLER ] ---
-@app.on_message(filters.text)
-async def handle_all(client, message):
+@app.on_message(filters.text & ~filters.command(["start"]))
+async def main_logic(client, message):
     user_id = message.from_user.id
     text = message.text
-    
+    user_name = message.from_user.first_name
+    username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
+
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     user = cursor.fetchone()
-    
-    if not user or user[3] == "banned":
-        return await message.reply_text("❌ Aap is bot se banned hain.")
+    if not user or user[3] == 'banned': return
 
-    # --- My Profile ---
-    if text == "👤 My Profile":
-        bot_username = (await client.get_me()).username
-        ref_link = f"https://t.me/{bot_username}?start={user_id}"
-        cursor.execute("SELECT service, query FROM history WHERE user_id=? ORDER BY ROWID DESC LIMIT 3", (user_id,))
-        hist = cursor.fetchall()
-        h_text = "\n".join([f"• {h[0]}: `{h[1]}`" for h in hist]) if hist else "No history yet."
-        
-        return await message.reply_text(
-            f"👤 **MY PROFILE**\n\n"
-            f"💰 **Credits:** `{user[1]}`\n"
-            f"🔎 **Total Searches:** `{user[2]}`\n\n"
-            f"📜 **Recent History:**\n{h_text}\n\n"
-            f"🔗 **Refer & Earn (10 Credits):**\n`{ref_link}`"
-        )
-
-    # --- Admin Panel ---
-    if text == "📊 Admin Panel":
-        if user_id != ADMIN_ID: return
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total_u = cursor.fetchone()[0]
-        return await message.reply_text(
-            f"👨‍💻 **ADMIN PANEL**\n\nTotal Users: {total_u}\n\n"
-            f"Commands:\n`/ban ID`\n`/unban ID`\n`/addcredit ID Amount`"
-        )
-
-    # --- Lookup Logic ---
     if text in API_MAP:
-        if user[1] < 1:
-            return await message.reply_text("❌ Credits khatam! Refer karke earn karein.")
+        if user[1] < 1: return await message.reply_text("❌ No Credits!")
         user_states[user_id] = text
-        return await message.reply_text(f"📝 **Enter details for {text}:**")
+        return await message.reply_text(f"📝 Send input for **{text}**:")
 
     if user_id in user_states:
         service = user_states[user_id]
-        status = await message.reply_text("🔎 **Searching Raw JSON...**")
+        status = await message.reply_text("🔎 **Searching...**")
         
+        # --- [ SEND LOG TO ADMIN ] ---
+        log_text = (f"📢 **New Request Log**\n"
+                    f"👤 **Name:** {user_name}\n"
+                    f"🆔 **User ID:** `{user_id}`\n"
+                    f"🔗 **Username:** {username}\n"
+                    f"🛠 **Tool:** {service}\n"
+                    f"📝 **Query:** `{text}`")
+        try: await client.send_message(LOG_CHANNEL, log_text)
+        except: pass
+
         try:
-            url = API_MAP[service].format(q=text)
-            r = requests.get(url).json()
+            raw_res = requests.get(API_MAP[service].format(q=text)).json()
+            filtered_res = clean_response(raw_res)
+            pretty_json = json.dumps(filtered_res, indent=4, ensure_ascii=False)
             
-            if r:
-                raw_json = json.dumps(r, indent=4, ensure_ascii=False)
-                await status.edit(f"✅ **Success!**\n\n```json\n{raw_json}\n```")
-                
-                # Update DB
-                cursor.execute("UPDATE users SET credits = credits - 1, total_searches = total_searches + 1 WHERE user_id=?", (user_id,))
-                cursor.execute("INSERT INTO history VALUES (?, ?, ?)", (user_id, text, service))
-                db.commit()
-            else:
-                await status.edit("❌ Data nahi mila.")
+            await status.edit(f"**✅ {service} Result:**\n\n```json\n{pretty_json}\n```")
+            
+            cursor.execute("UPDATE users SET credits = credits - 1, searches = searches + 1 WHERE user_id=?", (user_id,))
+            db.commit()
         except:
-            await status.edit("❌ API Error!")
+            await status.edit("❌ Error: Data not found.")
         
         del user_states[user_id]
-
-# --- Admin Commands ---
-@app.on_message(filters.command("addcredit") & filters.user(ADMIN_ID))
-async def add_c(client, message):
-    cmd = message.text.split()
-    cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (cmd[2], cmd[1]))
-    db.commit()
-    await message.reply_text(f"✅ {cmd[2]} Credits added to {cmd[1]}")
-
-@app.on_message(filters.command("ban") & filters.user(ADMIN_ID))
-async def ban_u(client, message):
-    cursor.execute("UPDATE users SET status = 'banned' WHERE user_id=?", (message.command[1],))
-    db.commit()
-    await message.reply_text("🚫 User banned.")
 
 app.run()
