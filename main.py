@@ -6,11 +6,11 @@ from pyrogram.types import ReplyKeyboardMarkup
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 5192884021 
+ADMIN_ID = 5192884021 # Tera ID
 
 PROTECTED_IDS = [str(ADMIN_ID), "5192884021", "6011993446"]
 
-app = Client("soul_chaser_final_v3", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("soul_chaser_final_v4", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ DB SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
@@ -19,20 +19,20 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY, 
     credits INTEGER DEFAULT 5, 
     searches INTEGER DEFAULT 0, 
-    status TEXT DEFAULT 'active')""")
+    status TEXT DEFAULT 'active',
+    referred_by INTEGER DEFAULT 0)""")
 db.commit()
 
-# --- [ API MAPPING ] ---
+# --- [ UPDATED API MAPPING ] ---
 API_MAP = {
     "📞 Mobile Intelligence": "http://intelx-premium-apipanel.vercel.app/INTELXDEMO3?NUMBER={q}",
     "🆔 TG Num Lookup": "https://intelx-premium-apipanel.vercel.app/INTELXDEMO?USERID={q}",
-    "🚗 Vehicle Info": "https://intelx-premium-apipanel.vercel.app/INTELXDEMO?USERID={q}",
+    "🚗 Vehicle Info": "https://intelx-premium-apipanel.vercel.app/INTELXDEMO1?Rc_number={q}", # Nayi API Set
     "👤 Vehicle Owner": "https://intelx-premium-apipanel.vercel.app/INTELXDEMO2?Rc_number={q}",
     "📑 Aadhaar Lookup": "http://intelx-premium-apipanel.vercel.app/INTELXDEMO4?AADHAR={q}",
     "👨‍👩‍👦 Family Data": "http://intelx-premium-apipanel.vercel.app/INTELXDEMO5?FADHAR={q}"
 }
 
-# User state storage
 user_states = {}
 
 # --- [ KEYBOARDS ] ---
@@ -58,53 +58,78 @@ def ghost_clean(data):
         return [ghost_clean(i) for i in data if ghost_clean(i) is not None]
     return data
 
-# --- [ HANDLERS ] ---
+# --- [ START & REFERRAL LOGIC ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
-    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
-    db.commit()
-    user_states[user_id] = None
-    await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=get_main_kb(user_id))
+    cursor.execute("SELECT status FROM users WHERE user_id=?", (user_id,))
+    res = cursor.fetchone()
 
+    if not res:
+        # Referral Check
+        ref_id = 0
+        if len(message.command) > 1:
+            try:
+                ref_id = int(message.command[1])
+                if ref_id != user_id:
+                    cursor.execute("UPDATE users SET credits = credits + 5 WHERE user_id=?", (ref_id,))
+                    db.commit()
+                    try: await client.send_message(ref_id, "🎁 **Referral Bonus!** Aapko +5 Credits mil gaye.")
+                    except: pass
+            except: pass
+        
+        cursor.execute("INSERT INTO users (user_id, credits, referred_by) VALUES (?, 5, ?)", (user_id, ref_id))
+        db.commit()
+        msg = "🎁 Welcome! Aapko **5 Credits** free mile hain."
+    else:
+        msg = "💎 **SOUL CHASER SUPREME** 💎"
+
+    user_states[user_id] = None
+    await message.reply_text(msg, reply_markup=get_main_kb(user_id))
+
+# --- [ MAIN HANDLER ] ---
 @app.on_message(filters.text)
 async def handle_logic(client, message):
     user_id = message.from_user.id
     text = message.text
 
-    # 1. Profile & Back Logic
+    # 1. Profile Logic
     if text == "👤 My Profile":
         cursor.execute("SELECT credits, searches FROM users WHERE user_id=?", (user_id,))
         res = cursor.fetchone()
-        creds = "Unlimited" if user_id == ADMIN_ID else res[0]
-        return await message.reply_text(f"👤 **PROFILE**\n💰 Credits: `{creds}`\n🔎 Searches: `{res[1]}`", reply_markup=get_main_kb(user_id))
-    
-    if text == "🔙 Back":
-        user_states[user_id] = None
-        return await message.reply_text("💎 Main Menu", reply_markup=get_main_kb(user_id))
+        creds = "♾ Unlimited" if user_id == ADMIN_ID else res[0]
+        return await message.reply_text(f"👤 **PROFILE**\n\n💰 Credits: `{creds}`\n🔎 Searches: `{res[1]}`", reply_markup=get_main_kb(user_id))
 
-    # 2. Admin Panel Buttons
+    # 2. Refer & Earn Fix
+    if text == "🎁 Refer & Earn":
+        bot_usr = (await client.get_me()).username
+        ref_link = f"https://t.me/{bot_usr}?start={user_id}"
+        return await message.reply_text(f"🎁 **REFER & EARN**\n\nHar dost ko invite karne par **5 Credits** pao!\n\n🔗 `{ref_link}`", reply_markup=get_main_kb(user_id))
+
+    # 3. Admin Navigation
     if user_id == ADMIN_ID:
         if text == "📊 Admin Panel":
-            return await message.reply_text("🛡 BOSS MODE", reply_markup=get_admin_kb())
+            return await message.reply_text("🛡 **BOSS MODE ACTIVE**", reply_markup=get_admin_kb())
         if text in ["📢 Broadcast", "➕ Add Credits", "🚫 Ban User", "✅ Unban User"]:
             user_states[user_id] = f"ADMIN_{text}"
             return await message.reply_text(f"📝 Send input for {text}:")
+        if text == "🔙 Back":
+            user_states[user_id] = None
+            return await message.reply_text("💎 Main Menu", reply_markup=get_main_kb(user_id))
 
-    # 3. Tool Selection
+    # 4. Tool Selection
     if text in API_MAP:
         cursor.execute("SELECT credits FROM users WHERE user_id=?", (user_id,))
-        creds = cursor.fetchone()[0]
-        if creds < 1 and user_id != ADMIN_ID:
-            return await message.reply_text("❌ No Credits!", reply_markup=get_main_kb(user_id))
+        if cursor.fetchone()[0] < 1 and user_id != ADMIN_ID:
+            return await message.reply_text("❌ No Credits! Refer karke kamao.", reply_markup=get_main_kb(user_id))
         
-        user_states[user_id] = text # State set kar di
-        return await message.reply_text(f"🚀 {text} Active! Ab direct number/ID bhej do:")
+        user_states[user_id] = text
+        return await message.reply_text(f"🚀 **{text}** Active!\n\nAb direct number/ID bhej do (No reply needed):")
 
-    # 4. Processing States (No Reply Needed)
+    # 5. State Processing (Direct Input Handling)
     state = user_states.get(user_id)
     if state:
-        # Admin Action Processing
+        # Admin Actions
         if state.startswith("ADMIN_"):
             action = state.replace("ADMIN_", "")
             if action == "➕ Add Credits":
@@ -112,31 +137,31 @@ async def handle_logic(client, message):
                     tid, amt = text.split()
                     cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(tid))); db.commit()
                     user_states[user_id] = None
-                    return await message.reply_text(f"✅ Added {amt} credits to {tid}", reply_markup=get_admin_kb())
+                    return await message.reply_text(f"✅ Success! {amt} Credits added to {tid}", reply_markup=get_admin_kb())
                 except: return await message.reply_text("❌ Format: `ID AMOUNT`")
-            # Yahan baaki Admin actions (Ban/Broadcast) handle honge...
             user_states[user_id] = None
             return
 
-        # API Search Processing
+        # Lookup Execution
         if state in API_MAP:
             if any(pid in text for pid in PROTECTED_IDS):
                 return await message.reply_text("Baap ka data nahi! 😂🖕", reply_markup=get_main_kb(user_id))
 
-            status = await message.reply_text("🔎 Searching...")
+            status = await message.reply_text("🔎 **Fetching Data...**")
             try:
-                r = requests.get(API_MAP[state].format(q=text), timeout=20).json()
+                r = requests.get(API_MAP[state].format(q=text), timeout=25).json()
                 clean = ghost_clean(r)
-                await status.edit(f"✅ **Result:**\n\n```json\n{json.dumps(clean, indent=2, ensure_ascii=False)}\n```", reply_markup=get_main_kb(user_id))
+                await status.edit(f"✅ **Result Found:**\n\n```json\n{json.dumps(clean, indent=2, ensure_ascii=False)}\n```", reply_markup=get_main_kb(user_id))
                 
+                # Credits & Searches Update
                 if user_id != ADMIN_ID:
                     cursor.execute("UPDATE users SET searches = searches + 1, credits = credits - 1 WHERE user_id=?", (user_id,))
                 else:
                     cursor.execute("UPDATE users SET searches = searches + 1 WHERE user_id=?", (user_id,))
                 db.commit()
-                user_states[user_id] = None # Search khatam, state clear
+                user_states[user_id] = None # Reset state
             except:
-                await status.edit("❌ API Error.", reply_markup=get_main_kb(user_id))
+                await status.edit("❌ API Error or Timeout.", reply_markup=get_main_kb(user_id))
 
 app.run()
-                       
+        
