@@ -169,4 +169,4 @@ async def admin_cmds(client, message):
     except: await message.reply_text("❌ Usage: `/cmd ID Amt`")
 
 app.run()
-        
+    
