@@ -7,9 +7,8 @@ API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5192884021"))
-LOG_CHANNEL = ADMIN_ID 
 
-app = Client("soul_chaser_ghost", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("soul_chaser_final_backup", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ DB SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
@@ -19,47 +18,48 @@ db.commit()
 
 # --- [ THE ULTIMATE GHOST CLEANER ] ---
 def ghost_clean(data):
-    # 1. Ye keys jahan bhi dikhein, delete kar do
-    banned_keys = ["owner", "owners", "developer", "developers", "api_dev", "api_updates", "credit", "credits", "success", "msg", "status", "link", "website"]
-    # 2. In words wali koi bhi VALUE delete kar do (Dev Usernames etc)
-    banned_vals = ["@", "http", "t.me", "buy", "access", "dm", "sakib", "rohit", "froxtdevil", "kon_hu_mai"]
-
+    # Faltu branding, promo aur dev links ko jadh se khatam karne ke liye
+    banned = ["owner", "owners", "developer", "developers", "api_dev", "api_updates", "credit", "credits", "dm", "buy", "access", "@", "http", "t.me", "sakib", "rohit", "froxtdevil", "kon_hu_mai"]
+    
     if isinstance(data, dict):
         new_dict = {}
         for k, v in data.items():
-            # Key check
-            if k.lower() in banned_keys: continue
-            # Value string check
-            if isinstance(v, str):
-                v_low = v.lower()
-                if any(word in v_low for word in banned_vals): continue
-            
+            if k.lower() in banned: continue
+            if isinstance(v, str) and any(word in v.lower() for word in banned): continue
             cleaned_v = ghost_clean(v)
-            if cleaned_v is not None:
-                new_dict[k] = cleaned_v
+            if cleaned_v is not None: new_dict[k] = cleaned_v
         return new_dict if new_dict else None
     elif isinstance(data, list):
         new_list = [ghost_clean(i) for i in data if ghost_clean(i) is not None]
         return new_list if new_list else None
-    else:
-        return data
+    return data
 
-# --- [ API MAP ] ---
+# --- [ FULL API MAP ] ---
 API_MAP = {
     "📞 Number V1": "https://sbsakib.eu.cc/apis/num_v1?key=Demo&num={q}",
     "🚀 Number V3": "https://sbsakib.eu.cc/apis/num_v3?key=Demo&Info={q}",
     "🔍 Truecaller Pro": "https://rohittruecallerapi.vercel.app/info?number={q}",
     "📧 Email Info": "https://rohitemailapi.vercel.app/info?mail={q}",
+    "🆔 TG Username": "https://sbsakib.eu.cc/apis/tg_username?key=Demo&username={q}",
+    "🆔 TG ID": "https://sbsakib.eu.cc/apis/tg_id?key=Demo&term={q}",
     "🌐 Web Scrape": "https://rohit-website-scrapper-api.vercel.app/zip?url={q}",
     "🆔 Aadhaar Info": "https://sbsakib.eu.cc/apis/aadhaar?key=Demo&id={q}",
     "👨‍👩‍👧 Family Info": "https://sbsakib.eu.cc/apis/family_aadhaar?key=Demo&term={q}",
+    "🚗 Vehicle RC": "https://sbsakib.eu.cc/apis/vehicle_num?key=Demo&rc={q}",
+    "📸 Instagram": "https://sbsakib.eu.cc/apis/insta_info?key=Demo&username={q}",
     "🎮 Free Fire": "https://sbsakib.eu.cc/apis/ff-info?key=Demo&uid={q}",
 }
 
+# --- [ TRIPLE BACKUP LIST ] ---
+NUMBER_BACKUPS = [
+    "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}",
+    "https://yash-code-ai-free-api.alphamovies.workers.dev/?number={q}",
+    "https://ayaanmods.site/mobile.php?key=annonymousmobile&term={q}"
+]
+
 user_states = {}
 
-# --- [ 1. PRIORITY ADMIN COMMANDS ] ---
-# Ye filters ab buttons se pehle trigger honge
+# --- [ 1. ADMIN PRIORITY COMMANDS ] ---
 @app.on_message(filters.command(["addcredits", "ban", "unban"]) & filters.user(ADMIN_ID))
 async def admin_cmds(client, message):
     try:
@@ -68,19 +68,31 @@ async def admin_cmds(client, message):
         if cmd == "addcredits":
             amt = int(message.command[2])
             cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (amt, uid))
-            res = f"✅ `{amt}` Credits added to `{uid}`"
+            res = f"✅ Credits updated for `{uid}`"
         elif cmd == "ban":
             cursor.execute("UPDATE users SET status='banned' WHERE user_id=?", (uid,))
             res = f"🚫 User `{uid}` Banned."
-        elif cmd == "unban":
-            cursor.execute("UPDATE users SET status='active' WHERE user_id=?", (uid,))
-            res = f"🔓 User `{uid}` Unbanned."
         db.commit()
         await message.reply_text(res)
-    except:
-        await message.reply_text("❌ Format: `/addcredits ID Amt` or `/ban ID`")
+    except: await message.reply_text("❌ Usage: `/addcredits ID Amt`")
 
-# --- [ 2. START & BUTTONS ] ---
+# --- [ 2. ADMIN PANEL & BROADCAST ] ---
+@app.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex("^📊 Admin Panel$|^📢 Broadcast$|^🔙 Back$"))
+async def admin_logic(client, message):
+    if message.text == "📊 Admin Panel":
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users WHERE status='banned'")
+        banned = cursor.fetchone()[0]
+        stats = f"🛡 **ADMIN PANEL**\n\n👥 Total: `{total}`\n✅ Active: `{total - banned}`\n🚫 Banned: `{banned}`"
+        await message.reply_text(stats, reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "🔙 Back"]], resize_keyboard=True))
+    elif message.text == "📢 Broadcast":
+        user_states[ADMIN_ID] = "WAIT_BROADCAST"
+        await message.reply_text("📣 Send broadcast message:", reply_markup=ForceReply(selective=True))
+    elif message.text == "🔙 Back":
+        await start(client, message)
+
+# --- [ 3. START & MAIN HANDLER ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
@@ -91,22 +103,24 @@ async def start(client, message):
     
     kb = [
         ["📞 Number V1", "🚀 Number V3"], ["🔍 Truecaller Pro", "📧 Email Info"],
-        ["🌐 Web Scrape", "🆔 Aadhaar Info"], ["🎮 Free Fire", "👤 My Profile"]
+        ["🆔 TG Username", "🆔 TG ID"], ["🆔 Aadhaar Info", "👨‍👩‍👧 Family Info"],
+        ["🌐 Web Scrape", "🚗 Vehicle RC"], ["🎮 Free Fire", "👤 My Profile"]
     ]
     if user_id == ADMIN_ID: kb.append(["📊 Admin Panel"])
-    await message.reply_text("**💎 SOUL CHASER OSINT 💎**", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
-# --- [ 3. MAIN LOGIC ] ---
 @app.on_message(filters.text & ~filters.command(["start", "addcredits", "ban", "unban"]))
-async def handle_all(client, message):
+async def handle_text(client, message):
     user_id = message.from_user.id
     text = message.text
 
-    # Admin Panel View
-    if text == "📊 Admin Panel" and user_id == ADMIN_ID:
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total = cursor.fetchone()[0]
-        return await message.reply_text(f"📊 **STATS**\nTotal Users: `{total}`\n\nUse `/addcredits` or `/ban` commands.")
+    if user_id == ADMIN_ID and user_states.get(user_id) == "WAIT_BROADCAST":
+        cursor.execute("SELECT user_id FROM users")
+        for u in cursor.fetchall():
+            try: await client.send_message(u[0], text)
+            except: continue
+        del user_states[user_id]
+        return await message.reply_text("✅ Broadcast Sent!")
 
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     user = cursor.fetchone()
@@ -114,36 +128,36 @@ async def handle_all(client, message):
 
     if text == "👤 My Profile":
         c = "Unlimited" if user_id == ADMIN_ID else user[1]
-        return await message.reply_text(f"👤 Profile\n💰 Credits: `{c}`\n🔎 Total: `{user[2]}`")
+        return await message.reply_text(f"👤 **PROFILE**\n💰 Credits: `{c}`\n🔎 Total: `{user[2]}`")
 
     if text in API_MAP:
         if user_id != ADMIN_ID and user[1] < 1: return await message.reply_text("❌ No Credits!")
         user_states[user_id] = text
-        return await message.reply_text(f"📝 Send Query for {text}:")
+        return await message.reply_text(f"📝 Query for {text}:")
 
     if user_id in user_states:
         service = user_states[user_id]
-        status = await message.reply_text("🔎 **Searching...**")
-        
-        # Log to Channel
-        await client.send_message(LOG_CHANNEL, f"📢 **Request**\n👤 {message.from_user.first_name}\n🆔 `{user_id}`\n🛠 {service}\n📝 `{text}`")
-
+        status = await message.reply_text("🔎 Searching...")
         try:
             r = requests.get(API_MAP[service].format(q=text), timeout=15).json()
-            # Hardcore Clean
-            clean_res = ghost_clean(r)
             
+            # --- [ BACKUP LOGIC ] ---
+            if "Number" in service and ("limit" in str(r).lower() or not r.get("data")):
+                for b_url in NUMBER_BACKUPS:
+                    try:
+                        r = requests.get(b_url.format(q=text), timeout=10).json()
+                        if r and "data" in str(r): break
+                    except: continue
+
+            clean_res = ghost_clean(r)
             if clean_res:
                 pretty = json.dumps(clean_res, indent=4, ensure_ascii=False)
                 await status.edit(f"**✅ {service} Result:**\n\n```json\n{pretty}\n```")
-                
-                # DB Update
                 cursor.execute("UPDATE users SET credits = credits - 1, searches = searches + 1 WHERE user_id=?", (user_id,)) if user_id != ADMIN_ID else cursor.execute("UPDATE users SET searches = searches + 1 WHERE user_id=?", (user_id,))
                 db.commit()
-            else:
-                await status.edit("❌ Result not found or hidden by filter.")
+            else: await status.edit("❌ Result hidden or not found.")
         except: await status.edit("❌ API Error.")
         del user_states[user_id]
 
 app.run()
-        
+            
