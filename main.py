@@ -8,7 +8,6 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 5192884021 
 
-# ID Protection (Inka data koi nahi nikal payega)
 PROTECTED_IDS = [str(ADMIN_ID), "5192884021", "6011993446"] 
 
 app = Client("soul_chaser_final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -16,12 +15,13 @@ app = Client("soul_chaser_final", api_id=API_ID, api_hash=API_HASH, bot_token=BO
 # --- [ DATABASE SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = db.cursor()
+# Table mein referred_by aur searches dono fix hain
 cursor.execute("""CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY, 
     credits INTEGER DEFAULT 5, 
     searches INTEGER DEFAULT 0, 
     status TEXT DEFAULT 'active', 
-    referred_by INTEGER)""")
+    referred_by INTEGER DEFAULT 0)""")
 db.commit()
 
 # --- [ API MAPPING ] ---
@@ -59,11 +59,13 @@ async def send_log(user, tool, query):
     try: await app.send_message(ADMIN_ID, log_text)
     except: pass
 
-# --- [ ADMIN HELPERS ] ---
-def get_admin_kb():
-    return ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits"], ["🚫 Ban User", "✅ Unban User"], ["🔙 Back"]], resize_keyboard=True)
+# --- [ KEYBOARDS ] ---
+def get_main_kb(user_id):
+    kb = [["📞 Number V1", "🚀 Number V3"], ["🔍 Truecaller Pro", "📧 Email Info"], ["🆔 TG ID", "🚗 Vehicle RC"], ["🌐 Web Scrape", "🎁 Refer & Earn"], ["👤 My Profile"]]
+    if user_id == ADMIN_ID: kb.append(["📊 Admin Panel"])
+    return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- [ START & MENU ] ---
+# --- [ START & REFERRAL LOGIC ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
@@ -73,75 +75,56 @@ async def start(client, message):
     if res and res[0] == "banned":
         return await message.reply_text("❌ **Banned!** Baap se panga mat le. 😂🖕")
 
+    # Naya User Logic
     if not res:
-        cursor.execute("INSERT INTO users (user_id, status) VALUES (?, 'active')", (user_id,))
+        ref_id = 0
+        # Check if joined via referral link
+        if len(message.command) > 1:
+            try:
+                ref_id = int(message.command[1])
+                if ref_id != user_id:
+                    # Give 5 credits to the referrer
+                    cursor.execute("UPDATE users SET credits = credits + 5 WHERE user_id=?", (ref_id,))
+                    try: 
+                        await client.send_message(ref_id, f"🎁 **Referral Bonus!**\nNaya user `{user_id}` join hua, aapko **5 Credits** mil gaye.")
+                    except: pass
+            except: pass
+        
+        # New user gets 5 credits by default
+        cursor.execute("INSERT INTO users (user_id, credits, searches, status, referred_by) VALUES (?, 5, 0, 'active', ?)", (user_id, ref_id))
         db.commit()
+        welcome_msg = "🎁 **Welcome!** Naya account banane par aapko **5 Credits** mile hain."
+    else:
+        welcome_msg = "💎 **SOUL CHASER SUPREME** 💎"
 
-    kb = [["📞 Number V1", "🚀 Number V3"], ["🔍 Truecaller Pro", "📧 Email Info"], ["🆔 TG ID", "🚗 Vehicle RC"], ["🌐 Web Scrape", "👤 My Profile"]]
-    if user_id == ADMIN_ID: kb.append(["📊 Admin Panel"])
-    await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    await message.reply_text(welcome_msg, reply_markup=get_main_kb(user_id))
 
-# --- [ ADMIN PANEL LOGIC ] ---
+# --- [ HANDLERS ] ---
 @app.on_message(filters.text & ~filters.command("start"))
-async def main_handler(client, message):
+async def handle_text(client, message):
     user_id = message.from_user.id
     text = message.text
 
-    # Check Ban
-    cursor.execute("SELECT status FROM users WHERE user_id=?", (user_id,))
-    res = cursor.fetchone()
-    if res and res[0] == "banned": return
+    # Admin Panel & User Profile Logic
+    if text == "👤 My Profile":
+        cursor.execute("SELECT credits, searches FROM users WHERE user_id=?", (user_id,))
+        u = cursor.fetchone()
+        return await message.reply_text(f"👤 **PROFILE**\n\n💰 Credits: `{u[0]}`\n🔎 Searches: `{u[1]}`")
 
-    # Admin Panel Navigation
-    if user_id == ADMIN_ID:
-        if text == "📊 Admin Panel":
-            return await message.reply_text("🛡 **ADMIN CONTROLS**", reply_markup=get_admin_kb())
-        elif text == "📢 Broadcast":
-            user_states[user_id] = "bc"
-            return await message.reply_text("📝 Send Message for Broadcast:", reply_markup=ForceReply(selective=True))
-        elif text == "➕ Add Credits":
-            user_states[user_id] = "add"
-            return await message.reply_text("📝 Format: `ID AMOUNT`", reply_markup=ForceReply(selective=True))
-        elif text == "🚫 Ban User":
-            user_states[user_id] = "ban"
-            return await message.reply_text("📝 Send User ID to Ban:", reply_markup=ForceReply(selective=True))
-        elif text == "✅ Unban User":
-            user_states[user_id] = "unban"
-            return await message.reply_text("📝 Send User ID to Unban:", reply_markup=ForceReply(selective=True))
-        elif text == "🔙 Back":
-            kb = [["📞 Number V1", "🚀 Number V3"], ["🔍 Truecaller Pro", "📧 Email Info"], ["🆔 TG ID", "🚗 Vehicle RC"], ["🌐 Web Scrape", "👤 My Profile"], ["📊 Admin Panel"]]
-            return await message.reply_text("💎 **Main Menu**", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    if text == "🎁 Refer & Earn":
+        bot = (await client.get_me()).username
+        return await message.reply_text(f"🎁 **Refer & Earn**\n\nInvite your friends and get **5 Credits** per referral!\n\n🔗 `https://t.me/{bot}?start={user_id}`")
 
-    # Handle Admin States (Broadcast, Ban, Credits)
-    if user_id == ADMIN_ID and user_id in user_states:
-        state = user_states.pop(user_id)
-        if state == "bc":
-            cursor.execute("SELECT user_id FROM users"); all_u = cursor.fetchall()
-            for u in all_u:
-                try: await client.send_message(u[0], f"📢 **ADMIN:**\n\n{text}"); await asyncio.sleep(0.1)
-                except: pass
-            return await message.reply_text("✅ Broadcast Done.")
-        elif state == "add":
-            try:
-                tid, amt = text.split()
-                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(tid))); db.commit()
-                return await message.reply_text(f"✅ Added {amt} to {tid}")
-            except: return await message.reply_text("❌ Error.")
-        elif state == "ban":
-            cursor.execute("UPDATE users SET status = 'banned' WHERE user_id=?", (int(text),)); db.commit()
-            return await message.reply_text("🚫 User Banned.")
-        elif state == "unban":
-            cursor.execute("UPDATE users SET status = 'active' WHERE user_id=?", (int(text),)); db.commit()
-            return await message.reply_text("✅ User Unbanned.")
-
-    # Search Tools Processing
+    # API Request Initiation
     if text in API_MAP:
         cursor.execute("SELECT credits FROM users WHERE user_id=?", (user_id,))
-        if cursor.fetchone()[0] < 1 and user_id != ADMIN_ID:
-            return await message.reply_text("❌ No Credits!")
+        creds = cursor.fetchone()[0]
+        if creds < 1 and user_id != ADMIN_ID:
+            return await message.reply_text("❌ **No Credits!** Refer karke earn karo.")
+        
         return await message.reply_text(f"📝 Send Query for {text}:", reply_markup=ForceReply(selective=True))
 
-    # API Execution Logic
+    # API Execution
     if message.reply_to_message and "Send Query for" in message.reply_to_message.text:
         service = message.reply_to_message.text.split("for ")[-1].strip(":")
         
@@ -155,10 +138,13 @@ async def main_handler(client, message):
             r = requests.get(API_MAP[service].format(q=text), timeout=15).json()
             clean = ghost_clean(r)
             if clean:
-                await status.edit(f"✅ **Result:**\n\n```json\n{json.dumps(clean, indent=2)}\n```")
+                await status.edit(f"✅ **Result Found:**\n\n```json\n{json.dumps(clean, indent=2)}\n```")
+                # Deduct Credit and Update Search Count
                 cursor.execute("UPDATE users SET searches = searches + 1, credits = credits - 1 WHERE user_id=?", (user_id,))
                 db.commit()
-            else: await status.edit("❌ No clean records found.")
-        except: await status.edit("❌ API Timeout/Error.")
+            else:
+                await status.edit("❌ No record found.")
+        except:
+            await status.edit("❌ API Error.")
 
 app.run()
