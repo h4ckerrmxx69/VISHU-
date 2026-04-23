@@ -1,19 +1,22 @@
 import os, requests, json, sqlite3, asyncio
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
-from pyrogram.errors import UserNotParticipant, FloodWait
+from pyrogram.errors import UserNotParticipant, FloodWait, ChatAdminRequired
 
 # --- [ CONFIG ] ---
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5192884021"))
-JOIN_CHANNEL = "@h4ckerrmx" 
+
+# 💡 ZAROORI: Yahan apni Numeric Channel ID dalo (e.g. -100...)
+# Agar ID nahi pata toh @h4ckerrmx hi rehne do, par ID best hai.
+JOIN_CHANNEL = -1001807190033
 CHANNEL_LINK = "https://t.me/h4ckerrmx"
 
 PROTECTED_IDS = [str(ADMIN_ID), "5192884021", "6011993446"] 
 
-app = Client("soul_chaser_v21_final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("soul_chaser_ghost", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ DB SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
@@ -25,6 +28,22 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS users (
     status TEXT, 
     referred_by INTEGER)""")
 db.commit()
+
+# --- [ GHOST CLEANER ] ---
+def ghost_clean(data):
+    banned = ["owner", "developer", "api_dev", "api_updates", "credit", "dm", "buy", "access", "@", "http", "t.me", "sakib", "rohit", "froxtdevil", "ayaanmods"]
+    if isinstance(data, dict):
+        new_dict = {}
+        for k, v in data.items():
+            if any(word in k.lower() for word in banned): continue
+            if isinstance(v, str) and any(word in v.lower() for word in banned): continue
+            cleaned_v = ghost_clean(v)
+            if cleaned_v is not None: new_dict[k] = cleaned_v
+        return new_dict if new_dict else None
+    elif isinstance(data, list):
+        new_list = [ghost_clean(item) for item in data if ghost_clean(item) is not None]
+        return new_list if new_list else None
+    return data
 
 # --- [ API MAPPING ] ---
 API_MAP = {
@@ -46,32 +65,19 @@ async def is_subscribed(user_id):
         user = await app.get_chat_member(JOIN_CHANNEL, user_id)
         return user.status in ["member", "administrator", "creator"]
     except UserNotParticipant: return False
-    except: return True # Error pe allow kar do taaki bot na phanse
+    except: return True
 
 def get_main_kb(user_id):
-    kb = [
-        ["📞 Number V1", "🚀 Number V3"],
-        ["🔍 Truecaller Pro", "📧 Email Info"],
-        ["🆔 TG ID", "🚗 Vehicle RC"],
-        ["🌐 Web Scrape", "🎁 Refer & Earn"],
-        ["👤 My Profile"]
-    ]
+    kb = [["📞 Number V1", "🚀 Number V3"], ["🔍 Truecaller Pro", "📧 Email Info"], ["🆔 TG ID", "🚗 Vehicle RC"], ["🌐 Web Scrape", "🎁 Refer & Earn"], ["👤 My Profile"]]
     if user_id == ADMIN_ID: kb.append(["📊 Admin Panel"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 async def send_log(user, tool, query):
-    log_text = (
-        f"📢 **New Request Log**\n"
-        f"👤 **Name:** {user.first_name} ❤️\n"
-        f"🆔 **User ID:** `{user.id}`\n"
-        f"🔗 **Username:** @{user.username if user.username else 'None'}\n"
-        f"🛠 **Tool:** {tool}\n"
-        f"📝 **Query:** `{query}`"
-    )
+    log_text = f"📢 **New Request Log**\n👤 **Name:** {user.first_name} ❤️\n🆔 **User ID:** `{user.id}`\n🛠 **Tool:** {tool}\n📝 **Query:** `{query}`"
     try: await app.send_message(ADMIN_ID, log_text)
     except: pass
 
-# --- [ HANDLERS ] ---
+# --- [ START & VERIFY ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
@@ -80,15 +86,13 @@ async def start(client, message):
         ref_id = int(message.command[1]) if len(message.command) > 1 else 0
         if ref_id != 0 and ref_id != user_id:
             cursor.execute("UPDATE users SET credits = credits + 5 WHERE user_id=?", (ref_id,))
-            try: await client.send_message(ref_id, "🎁 **Referral Bonus!** You got `5` credits.")
+            try: await client.send_message(ref_id, "🎁 **Referral Bonus!** 5 Credits added.")
             except: pass
-        # New user gets 5 credits
         cursor.execute("INSERT INTO users VALUES (?, 5, 0, 'active', ?)", (user_id, ref_id))
         db.commit()
     
     if not await is_subscribed(user_id):
         return await message.reply_text("⚠️ **Join @h4ckerrmx first!**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)], [InlineKeyboardButton("Verify ✅", callback_data="verify_me")]]))
-    
     await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=get_main_kb(user_id))
 
 @app.on_callback_query(filters.regex("verify_me"))
@@ -96,49 +100,41 @@ async def verify(client, callback_query):
     if await is_subscribed(callback_query.from_user.id):
         await callback_query.answer("✅ Verified!", show_alert=True)
         await callback_query.message.delete()
-        await client.send_message(callback_query.from_user.id, "💎 **Welcome Back!**", reply_markup=get_main_kb(callback_query.from_user.id))
-    else: await callback_query.answer("Join pehle kar bsdk! 😂🖕", show_alert=True)
+        await client.send_message(callback_query.from_user.id, "💎 **Main Menu**", reply_markup=get_main_kb(callback_query.from_user.id))
+    else: await callback_query.answer("Join kar pehle bsdk! 😂🖕", show_alert=True)
 
+# --- [ MAIN TEXT HANDLER ] ---
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text(client, message):
     user_id = message.from_user.id
     text = message.text
 
-    # --- [ ADMIN PANEL ] ---
     if user_id == ADMIN_ID:
         if text == "📊 Admin Panel":
-            cursor.execute("SELECT COUNT(*) FROM users")
-            total = cursor.fetchone()[0]
-            return await message.reply_text(f"🛡 **ADMIN PANEL**\n\n👥 Total Users: `{total}`", reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits"], ["🔙 Back"]], resize_keyboard=True))
+            cursor.execute("SELECT COUNT(*) FROM users"); total = cursor.fetchone()[0]
+            return await message.reply_text(f"🛡 **ADMIN PANEL**\n\n👥 Users: `{total}`", reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits"], ["🔙 Back"]], resize_keyboard=True))
         elif text == "📢 Broadcast":
-            user_states[user_id] = "bc"
-            return await message.reply_text("📝 Send Broadcast Message:", reply_markup=ForceReply(selective=True))
+            user_states[user_id] = "bc"; return await message.reply_text("📝 Message:", reply_markup=ForceReply(selective=True))
         elif text == "➕ Add Credits":
-            user_states[user_id] = "add"
-            return await message.reply_text("📝 Send: `USER_ID AMOUNT`", reply_markup=ForceReply(selective=True))
+            user_states[user_id] = "add"; return await message.reply_text("📝 `ID AMOUNT`", reply_markup=ForceReply(selective=True))
         elif text == "🔙 Back":
             return await message.reply_text("💎 **Main Menu**", reply_markup=get_main_kb(user_id))
 
-    # --- [ ADMIN ACTIONS ] ---
     if user_id in user_states:
         state = user_states[user_id]; del user_states[user_id]
         if state == "bc":
-            cursor.execute("SELECT user_id FROM users")
-            all_users = cursor.fetchall()
-            for u in all_users:
+            cursor.execute("SELECT user_id FROM users"); users = cursor.fetchall()
+            for u in users:
                 try: await client.send_message(u[0], f"📢 **ADMIN:**\n\n{text}"); await asyncio.sleep(0.05)
-                except FloodWait as e: await asyncio.sleep(e.value)
                 except: pass
-            return await message.reply_text("✅ Broadcast Finished.")
+            return await message.reply_text("✅ Done.")
         elif state == "add":
             try:
                 tid, amt = text.split()
-                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(tid)))
-                db.commit()
+                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(tid))); db.commit()
                 return await message.reply_text(f"✅ Added {amt} to {tid}")
-            except: return await message.reply_text("❌ Use Format: `ID AMOUNT`")
+            except: return await message.reply_text("❌ Format Error.")
 
-    # --- [ USER ACTIONS ] ---
     if not await is_subscribed(user_id): return
 
     if text == "👤 My Profile":
@@ -148,7 +144,7 @@ async def handle_text(client, message):
 
     if text == "🎁 Refer & Earn":
         bot = (await client.get_me()).username
-        return await message.reply_text(f"🎁 **Refer & Earn**\nLink: `https://t.me/{bot}?start={user_id}`\n(5 Credits per Refer)")
+        return await message.reply_text(f"🎁 **Refer & Earn**\n`https://t.me/{bot}?start={user_id}`")
 
     if text in API_MAP:
         cursor.execute("SELECT credits FROM users WHERE user_id=?", (user_id,))
@@ -158,18 +154,20 @@ async def handle_text(client, message):
 
     if user_id in user_states:
         service = user_states[user_id]; del user_states[user_id]
-        if any(pid in text for pid in PROTECTED_IDS): return await message.reply_text("Baap ka data mat nikal! 😂🖕")
+        if any(pid in text for pid in PROTECTED_IDS): return await message.reply_text("😂🖕")
         
         await send_log(message.from_user, service, text)
         status = await message.reply_text("🔎 Searching...")
         try:
             r = requests.get(API_MAP[service].format(q=text), timeout=15).json()
-            if r:
-                await status.edit(f"✅ **Result:**\n\n```json\n{json.dumps(r, indent=4)}\n```")
+            # ✨ GHOST CLEANER IN ACTION ✨
+            clean = ghost_clean(r)
+            if clean:
+                await status.edit(f"✅ **Result:**\n\n```json\n{json.dumps(clean, indent=4)}\n```")
                 cursor.execute("UPDATE users SET searches = searches + 1, credits = credits - 1 WHERE user_id=?", (user_id,))
                 db.commit()
-            else: await status.edit("❌ No records found.")
-        except: await status.edit("❌ API Timeout/Error.")
+            else: await status.edit("❌ No clean data found.")
+        except: await status.edit("❌ API Error.")
 
 app.run()
-        
+              
