@@ -7,15 +7,15 @@ API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5192884021"))
-JOIN_CHANNEL = "@h4ckerrmx" 
+JOIN_CHANNEL = "@h4ckerrmx" #
 CHANNEL_LINK = "https://t.me/h4ckerrmx"
 
-# 🛡️ PROTECTION LIST
+# 🛡️ PROTECTION LIST (Yahan aur IDs add kar sakte ho)
 PROTECTED_IDS = [str(ADMIN_ID), "5192884021", "6011993446"] 
 
-app = Client("soul_chaser_v12_final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("soul_chaser_final_v14", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- [ DB SETUP ] ---
+# --- [ DATABASE SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = db.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, credits INTEGER, searches INTEGER, status TEXT, referred_by INTEGER)")
@@ -34,8 +34,7 @@ def ghost_clean(data):
         return new_dict if new_dict else None
     return data
 
-# --- [ API CONFIG (PRIMARY & BACKUP) ] ---
-# Number V1 & V3 ab tere diye huye links use karenge
+# --- [ NEW API MAPPING (NO SAKIB) ] ---
 API_MAP = {
     "📞 Number V1": "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}",
     "🚀 Number V3": "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}",
@@ -64,11 +63,10 @@ def get_main_kb(user_id):
         ["🌐 Web Scrape", "🎁 Refer & Earn"],
         ["👤 My Profile"]
     ]
-    if user_id == ADMIN_ID:
-        kb.append(["📊 Admin Panel"])
+    if user_id == ADMIN_ID: kb.append(["📊 Admin Panel"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- [ COMMANDS ] ---
+# --- [ START COMMAND ] ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     user_id = message.from_user.id
@@ -79,22 +77,40 @@ async def start(client, message):
         db.commit()
     
     if not await is_subscribed(user_id):
-        return await message.reply_text("⚠️ Join Karo!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)], [InlineKeyboardButton("Verify ✅", callback_data="verify_me")]]))
-    
+        return await message.reply_text(
+            "⚠️ **Access Denied!**\n\nYou must join our channel to use this bot.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)],
+                [InlineKeyboardButton("Verify ✅", callback_data="verify_me")]
+            ])
+        )
     await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=get_main_kb(user_id))
 
-# --- [ MAIN HANDLER ] ---
+# --- [ VERIFY BUTTON FIXED ] ---
+@app.on_callback_query(filters.regex("verify_me"))
+async def verify_handler(client, callback_query):
+    user_id = callback_query.from_user.id
+    if await is_subscribed(user_id):
+        await callback_query.answer("Verified! Welcome back. 🚀", show_alert=True)
+        await callback_query.message.delete()
+        await client.send_message(user_id, "💎 **SOUL CHASER SUPREME** 💎", reply_markup=get_main_kb(user_id))
+    else:
+        await callback_query.answer("Abe join toh kar pehle bsdk! 😂🖕", show_alert=True)
+
+# --- [ MAIN TEXT HANDLER ] ---
 @app.on_message(filters.text & ~filters.command(["start", "addcredits"]))
-async def handle_message(client, message):
+async def handle_text(client, message):
     user_id = message.from_user.id
     text = message.text
 
     if not await is_subscribed(user_id): return
 
-    # Admin Panel & Back logic fix
+    # Admin Logic
     if user_id == ADMIN_ID:
         if text == "📊 Admin Panel":
-            return await message.reply_text("🛡 **ADMIN PANEL**", reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits Info"], ["🔙 Back"]], resize_keyboard=True))
+            cursor.execute("SELECT COUNT(*) FROM users")
+            return await message.reply_text(f"🛡 **ADMIN PANEL**\n\nTotal: `{cursor.fetchone()[0]}`", 
+                reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits Info"], ["🔙 Back"]], resize_keyboard=True))
         elif text == "🔙 Back":
             return await message.reply_text("💎 **Main Menu**", reply_markup=get_main_kb(user_id))
 
@@ -104,51 +120,30 @@ async def handle_message(client, message):
         u = cursor.fetchone()
         return await message.reply_text(f"👤 **PROFILE**\n💰 Credits: `{'Unlimited' if user_id == ADMIN_ID else u[0]}`\n🔎 Total: `{u[1]}`")
 
-    if text == "🎁 Refer & Earn":
-        return await message.reply_text(f"🎁 **Refer & Earn**\nLink: `https://t.me/{(await client.get_me()).username}?start={user_id}`")
-
-    # Entry into Service
+    # Service Selection
     if text in API_MAP:
         user_states[user_id] = text
         return await message.reply_text(f"📝 Send Query for {text}:", reply_markup=ForceReply(selective=True))
 
-    # Search Processing
+    # Search Logic
     if user_id in user_states:
         service = user_states[user_id]
-        del user_states[user_id] # Clean state immediately to avoid loops
+        del user_states[user_id] # State clear to prevent loops
 
         if any(pid in text for pid in PROTECTED_IDS):
             return await message.reply_text("Madarchod, baap ka data nikalega? 😂🖕")
 
-        wait = await message.reply_text("🔎 Searching...")
+        status = await message.reply_text("🔎 Searching...")
         try:
             r = requests.get(API_MAP[service].format(q=text), timeout=15).json()
             clean = ghost_clean(r)
             if clean:
-                await wait.edit(f"✅ **Result:**\n\n```json\n{json.dumps(clean, indent=4)}\n```")
-                # Credit update
+                await status.edit(f"**✅ Result:**\n\n```json\n{json.dumps(clean, indent=4)}\n```")
                 cursor.execute("UPDATE users SET searches = searches + 1 WHERE user_id=?", (user_id,))
                 if user_id != ADMIN_ID: cursor.execute("UPDATE users SET credits = credits - 1 WHERE user_id=?", (user_id,))
                 db.commit()
-            else:
-                await wait.edit("❌ No data found.")
-        except:
-            await wait.edit("❌ API Error or Timeout.")
-
-# --- [ VERIFY & CREDITS ] ---
-@app.on_callback_query(filters.regex("verify_me"))
-async def verify(client, callback_query):
-    if await is_subscribed(callback_query.from_user.id):
-        await callback_query.message.delete()
-        await client.send_message(callback_query.from_user.id, "💎 **Verified!**", reply_markup=get_main_kb(callback_query.from_user.id))
-
-@app.on_message(filters.command("addcredits") & filters.user(ADMIN_ID))
-async def add_credits(client, message):
-    try:
-        _, uid, amt = message.text.split()
-        cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(uid)))
-        db.commit()
-        await message.reply_text(f"✅ Added {amt} to {uid}")
-    except: pass
+            else: await status.edit("❌ No data found.")
+        except: await status.edit("❌ API Error. Try later.")
 
 app.run()
+                
