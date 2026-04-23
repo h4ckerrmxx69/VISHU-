@@ -13,9 +13,9 @@ CHANNEL_LINK = "https://t.me/h4ckerrmx"
 # 🛡️ PROTECTION LIST
 PROTECTED_IDS = [str(ADMIN_ID), "5192884021", "6011993446"] 
 
-app = Client("soul_chaser_v10_fixed", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("soul_chaser_final_no_sakib", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- [ DB & GHOST CLEANER ] ---
+# --- [ DB SETUP ] ---
 db = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = db.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, credits INTEGER, searches INTEGER, status TEXT, referred_by INTEGER)")
@@ -33,30 +33,23 @@ def ghost_clean(data):
         return new_dict if new_dict else None
     return data
 
-# --- [ APIs & BACKUPS ] ---
+# --- [ NEW API MAPPING (NO SAKIB) ] ---
+# Dono buttons par ab tere diye huye reliable links set hain
 API_MAP = {
-    "📞 Number V1": "https://sbsakib.eu.cc/apis/num_v1?key=Demo&num={q}",
-    "🚀 Number V3": "https://sbsakib.eu.cc/apis/num_v3?key=Demo&Info={q}",
+    "📞 Number V1": "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}",
+    "🚀 Number V3": "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}",
     "🔍 Truecaller Pro": "https://rohittruecallerapi.vercel.app/info?number={q}",
     "📧 Email Info": "https://rohitemailapi.vercel.app/info?mail={q}",
-    "🆔 TG Username": "https://sbsakib.eu.cc/apis/tg_username?key=Demo&username={q}",
-    "🆔 TG ID": "https://sbsakib.eu.cc/apis/tg_id?key=Demo&term={q}",
-    "🆔 Aadhaar Info": "https://sbsakib.eu.cc/apis/aadhaar?key=Demo&id={q}",
-    "👨‍👩‍👧 Family Info": "https://sbsakib.eu.cc/apis/family_aadhaar?key=Demo&term={q}",
-    "🚗 Vehicle RC": "https://sbsakib.eu.cc/apis/vehicle_num?key=Demo&rc={q}",
+    "🆔 TG Username": "https://rohittruecallerapi.vercel.app/info?number={q}", # Placeholder
+    "🆔 TG ID": "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}",
+    "🆔 Aadhaar Info": "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}", # Backup link
+    "👨‍👩‍👧 Family Info": "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}",
+    "🚗 Vehicle RC": "https://rohit-website-scrapper-api.vercel.app/zip?url={q}",
     "🌐 Web Scrape": "https://rohit-website-scrapper-api.vercel.app/zip?url={q}",
-    "🎮 Free Fire": "https://sbsakib.eu.cc/apis/ff-info?key=Demo&uid={q}",
+    "🎮 Free Fire": "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}",
 }
 
-NUM_BACKUPS = [
-    "https://cyber-osint-num-infos.vercel.app/api/numinfo?key=Anonymous&num={q}",
-    "https://yash-code-ai-free-api.alphamovies.workers.dev/?number={q}",
-    "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}"
-]
-TG_ID_BACKUP = "https://ayaanmods.site/sms.php?key=annonymoussms&term={q}"
-
-user_states = {}
-
+# --- [ HELPERS ] ---
 async def is_subscribed(user_id):
     if user_id == ADMIN_ID: return True
     try:
@@ -79,7 +72,7 @@ async def start(client, message):
         cursor.execute("INSERT INTO users VALUES (?, 5, 0, 'active', ?)", (user_id, ref_id))
         db.commit()
     if not await is_subscribed(user_id):
-        return await message.reply_text(f"⚠️ Join {JOIN_CHANNEL} to use bot.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)], [InlineKeyboardButton("Verify ✅", callback_data="verify_me")]]))
+        return await message.reply_text(f"⚠️ Join {JOIN_CHANNEL} pehle!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)], [InlineKeyboardButton("Verify ✅", callback_data="verify_me")]]))
     await message.reply_text("💎 **SOUL CHASER SUPREME** 💎", reply_markup=get_main_kb(user_id))
 
 @app.on_message(filters.text & ~filters.command(["start", "addcredits"]))
@@ -91,58 +84,35 @@ async def handle_text(client, message):
         if text == "📊 Admin Panel":
             cursor.execute("SELECT COUNT(*) FROM users")
             u_count = cursor.fetchone()[0]
-            return await message.reply_text(f"🛡 **ADMIN PANEL**\n\n👥 Users: `{u_count}`\n🔒 Protection: `ACTIVE ({len(PROTECTED_IDS)})`", reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits Info"], ["🔙 Back"]], resize_keyboard=True))
+            return await message.reply_text(f"🛡 **ADMIN PANEL**\n\n👥 Users: `{u_count}`\n🔒 Protection: `ACTIVE`", reply_markup=ReplyKeyboardMarkup([["📢 Broadcast", "➕ Add Credits Info"], ["🔙 Back"]], resize_keyboard=True))
         elif text == "🔙 Back":
             return await message.reply_text("💎 **Main Menu**", reply_markup=get_main_kb(user_id))
 
     if user_id in user_states:
         service = user_states[user_id]
+        
+        # ⚔️ PROTECTION Logic
         if any(pid in text for pid in PROTECTED_IDS):
             await client.send_message(ADMIN_ID, f"🚫 **Abuse Alert!** `{user_id}` targetted `{text}`")
             del user_states[user_id]
-            return await message.reply_text("Madarchod, baap ka data nikalega? Nikal yahan se bsdk! 😂🖕")
+            return await message.reply_text("Madarchod, baap ka data nikalega? 😂🖕")
 
         status = await message.reply_text("🔎 Searching...")
-        final_data = None
-
         try:
-            # Main API Call
-            resp = requests.get(API_MAP[service].format(q=text), timeout=10).json()
+            # Ayaanmods aur Cyber-Osint directly call honge
+            resp = requests.get(API_MAP[service].format(q=text), timeout=15).json()
             
-            # Agar Main API fail ho (Empty data, Error, ya Limit)
-            if not resp or "data" not in str(resp) or "limit" in str(resp).lower() or "error" in str(resp).lower():
-                # 🔄 AUTOMATIC BACKUP SWITCH
-                if "Number" in service:
-                    for b_url in NUM_BACKUPS:
-                        try:
-                            backup_resp = requests.get(b_url.format(q=text), timeout=10).json()
-                            if backup_resp and "data" in str(backup_resp):
-                                resp = backup_resp
-                                break
-                        except: continue
-                elif service == "🆔 TG ID":
-                    try:
-                        backup_resp = requests.get(TG_ID_BACKUP.format(q=text)).json()
-                        if backup_resp: resp = backup_resp
-                    except: pass
-            
-            final_data = ghost_clean(resp)
-            if final_data:
-                await status.edit(f"**✅ Result:**\n\n```json\n{json.dumps(final_data, indent=4)}\n```")
+            clean_res = ghost_clean(resp)
+            if clean_res:
+                await status.edit(f"**✅ Result:**\n\n```json\n{json.dumps(clean_res, indent=4)}\n```")
+                # Credit Deduct
                 if user_id != ADMIN_ID: cursor.execute("UPDATE users SET credits = credits - 1, searches = searches + 1 WHERE user_id=?", (user_id,))
                 else: cursor.execute("UPDATE users SET searches = searches + 1 WHERE user_id=?", (user_id,))
                 db.commit()
-            else: await status.edit("❌ No data found in Main or Backup APIs.")
-        except Exception as e:
-            await status.edit(f"❌ API Crash: {str(e)}")
+            else: await status.edit("❌ No data found.")
+        except: await status.edit("❌ API Timeout/Error. Try again later.")
         del user_states[user_id]
         return
-
-    if text == "👤 My Profile":
-        cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-        u = cursor.fetchone()
-        c = "Unlimited" if user_id == ADMIN_ID else u[1]
-        return await message.reply_text(f"👤 **PROFILE**\n💰 Credits: `{c}`\n🔎 Total: `{u[2]}`")
 
     if text in API_MAP:
         cursor.execute("SELECT credits FROM users WHERE user_id=?", (user_id,))
@@ -150,5 +120,19 @@ async def handle_text(client, message):
         user_states[user_id] = text
         return await message.reply_text(f"📝 Enter Query for {text}:")
 
+@app.on_message(filters.command("addcredits") & filters.user(ADMIN_ID))
+async def add_credits(client, message):
+    try:
+        _, uid, amt = message.text.split()
+        cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(uid)))
+        db.commit()
+        await message.reply_text(f"✅ Added `{amt}` to `{uid}`")
+    except: pass
+
+@app.on_callback_query(filters.regex("verify_me"))
+async def verify_cb(client, callback_query):
+    if await is_subscribed(callback_query.from_user.id):
+        await callback_query.message.delete()
+        await client.send_message(callback_query.from_user.id, "💎 **Verified!**", reply_markup=get_main_kb(callback_query.from_user.id))
+
 app.run()
-        
